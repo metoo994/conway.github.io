@@ -1,0 +1,605 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Conway's Editor</title>
+<style>
+  :root{
+    --bg: #ffffff;
+    --fg: #000000;
+    --ui-bg: #ffffff;
+    --ui-border: #000000;
+    --muted: rgba(0,0,0,0.6);
+  }
+  :root.dark{
+    --bg: #000000;
+    --fg: #ffffff;
+    --ui-bg: #000000;
+    --ui-border: #ffffff;
+    --muted: rgba(255,255,255,0.6);
+  }
+
+  html,body{height:100%;margin:0;background:var(--bg);color:var(--fg);font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial; -webkit-font-smoothing:antialiased; -moz-osx-font-smoothing:grayscale;}
+  header{
+    display:flex;align-items:center;gap:12px;padding:10px;border-bottom:1px solid var(--ui-border);
+    background:var(--ui-bg);position:sticky;top:0;z-index:10;
+  }
+  h1{font-size:18px;margin:0;font-weight:600;}
+  .toolbar{display:flex;gap:8px;align-items:center;margin-left:8px;}
+  .btn{
+    display:inline-grid;place-items:center;width:36px;height:36px;border:1px solid var(--ui-border);background:transparent;cursor:pointer;
+    color:var(--fg);
+  }
+  .btn svg{width:18px;height:18px;fill:var(--fg);stroke:none}
+  .btn.active{background:var(--fg);color:var(--bg)}
+  .btn.active svg{fill:var(--bg)}
+  .controls{margin-left:auto;display:flex;gap:8px;align-items:center;}
+  input[type="text"]{
+    border:1px solid var(--ui-border);height:32px;padding:6px 8px;background:transparent;color:var(--fg);
+  }
+  input[type="range"]{accent-color:var(--fg)}
+  label{font-size:13px;color:var(--muted)}
+  #canvasWrap{position:relative;overflow:hidden;touch-action:none;height:calc(100vh - 56px)}
+  canvas{display:block;background:var(--bg);width:100%;height:100%}
+  .status{
+    position:absolute;left:8px;bottom:8px;padding:6px 8px;border:1px solid var(--ui-border);background:var(--ui-bg);font-size:12px;color:var(--muted);
+  }
+  .file-controls{display:flex;gap:8px;align-items:center}
+  .small{font-size:12px;padding:6px 8px;height:32px;border:1px solid var(--ui-border);background:transparent;color:var(--fg);cursor:pointer}
+  /* center moon/sun icons inside button */
+  #icon-moon, #icon-sun { display:block; margin:auto; width:18px; height:18px; }
+  /* responsive */
+  @media (max-width:520px){
+    header{gap:6px;padding:8px}
+    .btn{width:32px;height:32px}
+    input[type="text"]{width:120px}
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>Conway's Editor</h1>
+
+  <nav class="toolbar" aria-label="tools">
+    <button class="btn" id="tool-pen" title="Pen (draw)" aria-pressed="false">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 21l3-1 11-11 1-3-3 1L4 20zM20.7 7.3c.4-.4.4-1 0-1.4l-2.6-2.6a1 1 0 0 0-1.4 0l-1.8 1.8 4 4 1.8-1.8z"/></svg>
+    </button>
+
+    <button class="btn" id="tool-eraser" title="Eraser" aria-pressed="false">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16.24 3.56L21 8.32a2 2 0 0 1 0 2.83l-9.9 9.9a2 2 0 0 1-2.83 0L2.46 13.24a2 2 0 0 1 0-2.83l9.9-9.9a2 2 0 0 1 2.83 0l1.05 1.05zM7.5 12.5l4 4"/></svg>
+    </button>
+
+    <button class="btn" id="tool-pan" title="Pan" aria-pressed="false">
+      <!-- Pan icon: arrows point outward from center -->
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M12 2 L8 7 H11 V11 H13 V7 H16 L12 2 Z"/>
+        <path d="M22 12 L17 8 V11 H11 V13 H17 V16 L22 12 Z"/>
+        <path d="M12 22 L16 17 H13 V13 H11 V17 H8 L12 22 Z"/>
+        <path d="M2 12 L7 16 V13 H13 V11 H7 V8 L2 12 Z"/>
+      </svg>
+    </button>
+
+    <button class="btn" id="btn-clear" title="Clear">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 7h12v13a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V7zm3-4h6l1 1H8l1-1z"/></svg>
+    </button>
+
+    <button class="btn" id="btn-play" title="Play/Pause" aria-pressed="false">
+      <svg viewBox="0 0 24 24" id="icon-play" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>
+      <svg viewBox="0 0 24 24" id="icon-pause" aria-hidden="true" style="display:none"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
+    </button>
+  </nav>
+
+  <div class="controls">
+    <label for="rules">Rules</label>
+    <input id="rules" type="text" value="B3/S23" title="Rulestring (B.../S...)" />
+    <label for="speed">Speed</label>
+    <input id="speed" type="range" min="1" max="100" value="8" />
+
+    <div class="file-controls" style="margin-left:8px;">
+      <!-- Separate Save and Load buttons -->
+      <button class="small" id="btn-save">Save Pattern</button>
+      <button class="small" id="btn-load">Load Pattern</button>
+      <input id="file-input" type="file" accept=".json,application/json" style="display:none" />
+    </div>
+
+    <button class="btn" id="btn-theme" title="Toggle Light/Dark" aria-pressed="false" style="margin-left:8px">
+      <!-- Clean sun -->
+      <svg viewBox="0 0 24 24" id="icon-sun" aria-hidden="true" preserveAspectRatio="xMidYMid meet">
+        <circle cx="12" cy="12" r="5" fill="currentColor"/>
+        <line x1="12" y1="1" x2="12" y2="4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+        <line x1="12" y1="20" x2="12" y2="23" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+        <line x1="1" y1="12" x2="4" y2="12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+        <line x1="20" y1="12" x2="23" y2="12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+        <line x1="4.22" y1="4.22" x2="6.34" y2="6.34" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+        <line x1="17.66" y1="17.66" x2="19.78" y2="19.78" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+        <line x1="4.22" y1="19.78" x2="6.34" y2="17.66" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+        <line x1="17.66" y1="6.34" x2="19.78" y2="4.22" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+      </svg>
+      <!-- Centered moon -->
+      <svg viewBox="0 0 24 24" id="icon-moon" aria-hidden="true" preserveAspectRatio="xMidYMid meet" style="display:none">
+        <path d="M14.5 2.1a9 9 0 1 0 7.4 12.9 7 7 0 0 1-7.4-12.9z" fill="currentColor"/>
+      </svg>
+    </button>
+  </div>
+</header>
+
+<div id="canvasWrap">
+  <canvas id="grid"></canvas>
+  <div class="status" id="status">Tool: Pen • Scale: 20px</div>
+</div>
+
+<script>
+/* Conway's Editor
+   - Save and Load buttons separated (JSON)
+   - Centered moon icon
+   - Light/dark toggle
+   - Infinite sparse grid, pan/zoom, pen/eraser, play/pause
+*/
+
+const canvas = document.getElementById('grid');
+const wrap = document.getElementById('canvasWrap');
+const ctx = canvas.getContext('2d', {alpha:false});
+let dpr = Math.max(1, window.devicePixelRatio || 1);
+
+// UI elements
+const btnPen = document.getElementById('tool-pen');
+const btnEraser = document.getElementById('tool-eraser');
+const btnPan = document.getElementById('tool-pan');
+const btnClear = document.getElementById('btn-clear');
+const btnPlay = document.getElementById('btn-play');
+const iconPlay = document.getElementById('icon-play');
+const iconPause = document.getElementById('icon-pause');
+const rulesInput = document.getElementById('rules');
+const speedInput = document.getElementById('speed');
+const status = document.getElementById('status');
+const btnSave = document.getElementById('btn-save');
+const btnLoad = document.getElementById('btn-load');
+const fileInput = document.getElementById('file-input');
+const btnTheme = document.getElementById('btn-theme');
+const iconSun = document.getElementById('icon-sun');
+const iconMoon = document.getElementById('icon-moon');
+
+// world state
+const alive = new Set(); // "x,y"
+let scale = 20; // pixels per cell
+let offsetX = 0; // world pixel offset (CSS pixels)
+let offsetY = 0;
+let tool = 'pen'; // pen, eraser, pan
+let isRunning = false;
+let animationId = null;
+let lastStep = 0;
+let speed = Number(speedInput.value) || 8; // generations per second
+let rulestring = 'B3/S23';
+let birthSet = new Set([3]);
+let surviveSet = new Set([2,3]);
+
+// canvas sizing
+function resizeCanvas(){
+  const rect = wrap.getBoundingClientRect();
+  canvas.width = Math.floor(rect.width * dpr);
+  canvas.height = Math.floor(rect.height * dpr);
+  canvas.style.width = rect.width + 'px';
+  canvas.style.height = rect.height + 'px';
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  draw();
+}
+window.addEventListener('resize', ()=>{ dpr = Math.max(1, window.devicePixelRatio || 1); resizeCanvas(); });
+
+// parse rules
+function parseRules(str){
+  str = (str || '').toUpperCase().trim();
+  if(!str) str = 'B3/S23';
+  rulestring = str;
+  birthSet.clear(); surviveSet.clear();
+  const bMatch = str.match(/B([0-8]+)/);
+  const sMatch = str.match(/S([0-8]+)/);
+  if(bMatch) for(const ch of bMatch[1]) birthSet.add(Number(ch));
+  if(sMatch) for(const ch of sMatch[1]) surviveSet.add(Number(ch));
+  if(!bMatch && !sMatch){
+    const parts = str.split('/');
+    if(parts.length===2){
+      for(const ch of parts[0]) if(/\d/.test(ch)) birthSet.add(Number(ch));
+      for(const ch of parts[1]) if(/\d/.test(ch)) surviveSet.add(Number(ch));
+    } else {
+      birthSet.add(3); surviveSet.add(2); surviveSet.add(3);
+      rulestring = 'B3/S23';
+      rulesInput.value = rulestring;
+    }
+  }
+  rulesInput.value = rulestring;
+  updateStatus();
+}
+parseRules(rulestring);
+
+// helpers
+const keyFor = (x,y)=> `${x},${y}`;
+const parseKey = (k)=> { const [x,y]=k.split(',').map(Number); return {x,y}; };
+
+function screenToWorld(px,py){
+  return { x: (px - offsetX) / scale, y: (py - offsetY) / scale };
+}
+function worldToCell(wx,wy){ return { cx: Math.floor(wx), cy: Math.floor(wy) }; }
+function screenToCell(px,py){ const w = screenToWorld(px,py); return worldToCell(w.x,w.y); }
+
+// drawing
+function draw(){
+  const w = canvas.width / dpr;
+  const h = canvas.height / dpr;
+  // background
+  const bg = getComputedStyle(document.documentElement).getPropertyValue('--bg').trim() || '#fff';
+  ctx.fillStyle = bg;
+  ctx.fillRect(0,0,w,h);
+
+  // grid lines
+  const startX = Math.floor((-offsetX)/scale) - 1;
+  const startY = Math.floor((-offsetY)/scale) - 1;
+  const cols = Math.ceil(w/scale) + 3;
+  const rows = Math.ceil(h/scale) + 3;
+
+  ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--fg').trim() || '#000';
+  ctx.globalAlpha = 0.12;
+  ctx.lineWidth = 0.5;
+  ctx.beginPath();
+  for(let i=0;i<=cols;i++){
+    const x = Math.round(offsetX + (startX + i) * scale) + 0.25;
+    ctx.moveTo(x,0);
+    ctx.lineTo(x,h);
+  }
+  for(let j=0;j<=rows;j++){
+    const y = Math.round(offsetY + (startY + j) * scale) + 0.25;
+    ctx.moveTo(0,y);
+    ctx.lineTo(w,y);
+  }
+  ctx.stroke();
+  ctx.globalAlpha = 1;
+
+  // alive cells
+  ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--fg').trim() || '#000';
+  const minCellX = startX;
+  const minCellY = startY;
+  const maxCellX = startX + cols;
+  const maxCellY = startY + rows;
+
+  for(const k of alive){
+    const {x,y} = parseKey(k);
+    if(x < minCellX || x > maxCellX || y < minCellY || y > maxCellY) continue;
+    const sx = offsetX + x * scale;
+    const sy = offsetY + y * scale;
+    ctx.fillRect(Math.round(sx)+1, Math.round(sy)+1, Math.max(0, Math.round(scale)-1), Math.max(0, Math.round(scale)-1));
+  }
+}
+
+// simulation
+function step(){
+  const neighborCounts = new Map();
+  for(const k of alive){
+    const {x,y} = parseKey(k);
+    for(let dx=-1;dx<=1;dx++){
+      for(let dy=-1;dy<=1;dy++){
+        if(dx===0 && dy===0) continue;
+        const nk = keyFor(x+dx, y+dy);
+        neighborCounts.set(nk, (neighborCounts.get(nk) || 0) + 1);
+      }
+    }
+  }
+  const newAlive = new Set();
+  const processed = new Set();
+  for(const [k,c] of neighborCounts.entries()){
+    processed.add(k);
+    if(alive.has(k)){
+      if(surviveSet.has(c)) newAlive.add(k);
+    } else {
+      if(birthSet.has(c)) newAlive.add(k);
+    }
+  }
+  for(const k of alive){
+    if(processed.has(k)) continue;
+    if(surviveSet.has(0)) newAlive.add(k);
+  }
+  alive.clear();
+  for(const k of newAlive) alive.add(k);
+}
+
+// animation loop
+function run(now){
+  animationId = requestAnimationFrame(run);
+  const interval = 1000 / Math.max(1, speed);
+  if(now - lastStep >= interval){
+    step();
+    lastStep = now;
+    draw();
+    updateStatus();
+  }
+}
+
+// UI interactions
+function setTool(t){
+  tool = t;
+  [btnPen,btnEraser,btnPan].forEach(b=>b.classList.remove('active'));
+  btnPen.setAttribute('aria-pressed','false');
+  btnEraser.setAttribute('aria-pressed','false');
+  btnPan.setAttribute('aria-pressed','false');
+  if(t==='pen'){ btnPen.classList.add('active'); btnPen.setAttribute('aria-pressed','true'); }
+  if(t==='eraser'){ btnEraser.classList.add('active'); btnEraser.setAttribute('aria-pressed','true'); }
+  if(t==='pan'){ btnPan.classList.add('active'); btnPan.setAttribute('aria-pressed','true'); }
+  updateStatus();
+}
+btnPen.addEventListener('click', ()=>setTool('pen'));
+btnEraser.addEventListener('click', ()=>setTool('eraser'));
+btnPan.addEventListener('click', ()=>setTool('pan'));
+
+btnClear.addEventListener('click', ()=>{
+  alive.clear();
+  draw();
+  updateStatus();
+});
+
+function setPlay(p){
+  isRunning = p;
+  if(isRunning){
+    btnPlay.classList.add('active');
+    btnPlay.setAttribute('aria-pressed','true');
+    iconPlay.style.display = 'none';
+    iconPause.style.display = '';
+    lastStep = performance.now();
+    run(lastStep);
+  } else {
+    btnPlay.classList.remove('active');
+    btnPlay.setAttribute('aria-pressed','false');
+    iconPlay.style.display = '';
+    iconPause.style.display = 'none';
+    if(animationId) cancelAnimationFrame(animationId);
+    animationId = null;
+  }
+  updateStatus();
+}
+btnPlay.addEventListener('click', ()=>setPlay(!isRunning));
+
+speedInput.addEventListener('input', ()=>{
+  speed = Number(speedInput.value);
+  updateStatus();
+});
+
+rulesInput.addEventListener('change', ()=>{
+  parseRules(rulesInput.value.trim() || 'B3/S23');
+  draw();
+});
+
+// pointer interactions
+let isPointerDown = false;
+let lastCell = null;
+let panStart = null;
+
+canvas.addEventListener('pointerdown', (ev)=>{
+  ev.preventDefault();
+  canvas.setPointerCapture(ev.pointerId);
+  isPointerDown = true;
+  const rect = canvas.getBoundingClientRect();
+  const x = ev.clientX - rect.left;
+  const y = ev.clientY - rect.top;
+
+  if(tool === 'pan'){
+    panStart = {x: ev.clientX, y: ev.clientY, offsetX, offsetY};
+  } else {
+    const {cx,cy} = screenToCell(x,y);
+    lastCell = `${cx},${cy}`;
+    if(tool === 'pen'){ alive.add(lastCell); draw(); }
+    else if(tool === 'eraser'){ alive.delete(lastCell); draw(); }
+  }
+  updateStatus();
+});
+
+canvas.addEventListener('pointermove', (ev)=>{
+  if(!isPointerDown) return;
+  ev.preventDefault();
+  const rect = canvas.getBoundingClientRect();
+  const x = ev.clientX - rect.left;
+  const y = ev.clientY - rect.top;
+
+  if(tool === 'pan' && panStart){
+    const dx = ev.clientX - panStart.x;
+    const dy = ev.clientY - panStart.y;
+    offsetX = panStart.offsetX + dx;
+    offsetY = panStart.offsetY + dy;
+    draw();
+    updateStatus();
+    return;
+  }
+
+  const {cx,cy} = screenToCell(x,y);
+  const key = `${cx},${cy}`;
+  if(key === lastCell) return;
+  lastCell = key;
+  if(tool === 'pen'){ alive.add(key); draw(); }
+  else if(tool === 'eraser'){ alive.delete(key); draw(); }
+});
+
+canvas.addEventListener('pointerup', (ev)=>{
+  isPointerDown = false;
+  panStart = null;
+  canvas.releasePointerCapture(ev.pointerId);
+  lastCell = null;
+  updateStatus();
+});
+
+canvas.addEventListener('contextmenu', (ev)=>{ ev.preventDefault(); });
+
+// wheel to zoom (centered)
+canvas.addEventListener('wheel', (ev)=>{
+  ev.preventDefault();
+  const rect = canvas.getBoundingClientRect();
+  const mx = ev.clientX - rect.left;
+  const my = ev.clientY - rect.top;
+  const wheel = ev.deltaY < 0 ? 1 : -1;
+  const zoomFactor = 1 + wheel * 0.12;
+  const oldScale = scale;
+  const newScale = Math.max(6, Math.min(120, scale * zoomFactor));
+  const wx = (mx - offsetX) / oldScale;
+  const wy = (my - offsetY) / oldScale;
+  scale = newScale;
+  offsetX = mx - wx * scale;
+  offsetY = my - wy * scale;
+  draw();
+  updateStatus();
+}, {passive:false});
+
+// keyboard shortcuts
+window.addEventListener('keydown', (ev)=>{
+  if(ev.key === ' '){
+    ev.preventDefault();
+    setPlay(!isRunning);
+  } else if(ev.key === 'p'){
+    setTool('pan');
+  } else if(ev.key === 'e'){
+    setTool('eraser');
+  } else if(ev.key === 'd'){
+    setTool('pen');
+  } else if(ev.key === 'c'){
+    alive.clear(); draw(); updateStatus();
+  }
+});
+
+// touch pinch to zoom
+let touchState = null;
+canvas.addEventListener('touchstart', (ev)=>{
+  if(ev.touches.length === 2){
+    const t0 = ev.touches[0], t1 = ev.touches[1];
+    touchState = {
+      x0: t0.clientX, y0: t0.clientY,
+      x1: t1.clientX, y1: t1.clientY,
+      dist: Math.hypot(t1.clientX - t0.clientX, t1.clientY - t0.clientY),
+      midX: (t0.clientX + t1.clientX)/2,
+      midY: (t0.clientY + t1.clientY)/2,
+      scaleBefore: scale,
+      offsetXBefore: offsetX,
+      offsetYBefore: offsetY
+    };
+  }
+}, {passive:true});
+canvas.addEventListener('touchmove', (ev)=>{
+  if(touchState && ev.touches.length === 2){
+    ev.preventDefault();
+    const t0 = ev.touches[0], t1 = ev.touches[1];
+    const dist = Math.hypot(t1.clientX - t0.clientX, t1.clientY - t0.clientY);
+    const factor = dist / touchState.dist;
+    const newScale = Math.max(6, Math.min(120, touchState.scaleBefore * factor));
+    const rect = canvas.getBoundingClientRect();
+    const mx = (touchState.midX - rect.left);
+    const my = (touchState.midY - rect.top);
+    const wx = (mx - touchState.offsetXBefore) / touchState.scaleBefore;
+    scale = newScale;
+    offsetX = mx - wx * scale;
+    offsetY = my - ((touchState.midY - rect.top - touchState.offsetYBefore) / touchState.scaleBefore) * scale;
+    draw();
+    updateStatus();
+  }
+}, {passive:false});
+canvas.addEventListener('touchend', ()=>{ touchState = null; });
+
+// status
+function updateStatus(){
+  const toolLabel = isRunning ? 'Running' : ('Tool: ' + (tool.charAt(0).toUpperCase() + tool.slice(1)));
+  status.textContent = `${toolLabel} • Scale: ${Math.round(scale)}px • ${rulestring} • Speed: ${speed} gen/s • Cells: ${alive.size}`;
+}
+
+// Save as JSON (.json)
+function exportPattern(filename = '.json'){
+  const cells = [];
+  for(const k of alive){
+    const {x,y} = parseKey(k);
+    cells.push([x,y]);
+  }
+  const payload = {
+    rules: rulestring,
+    cells,
+    meta: { created: new Date().toISOString(), scale }
+  };
+  const blob = new Blob([JSON.stringify(payload, null, 2)], {type: 'application/json'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename.endsWith('.json') ? filename : (filename + '.json');
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+btnSave.addEventListener('click', ()=> exportPattern('.json'));
+
+// Load JSON (.json)
+function importPatternFromText(text){
+  try{
+    const data = JSON.parse(String(text));
+    if(!data || !Array.isArray(data.cells)) throw new Error('Invalid file format');
+    alive.clear();
+    for(const pair of data.cells){
+      if(!Array.isArray(pair) || pair.length < 2) continue;
+      const x = Math.floor(Number(pair[0])), y = Math.floor(Number(pair[1]));
+      if(Number.isFinite(x) && Number.isFinite(y)) alive.add(keyFor(x,y));
+    }
+    if(typeof data.rules === 'string') { rulesInput.value = data.rules; parseRules(data.rules); }
+    draw();
+    updateStatus();
+  } catch(err){
+    alert('Failed to load JSON file: ' + (err && err.message ? err.message : 'invalid JSON'));
+  }
+}
+
+btnLoad.addEventListener('click', ()=> fileInput.click());
+fileInput.addEventListener('change', (ev)=>{
+  const f = ev.target.files && ev.target.files[0];
+  if(!f) return;
+  const name = f.name || '';
+  if(!name.toLowerCase().endsWith('.json') && f.type !== 'application/json'){
+    alert('Please select a .json file.');
+    fileInput.value = '';
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = (e)=>{
+    try{
+      importPatternFromText(String(e.target.result));
+    } finally {
+      fileInput.value = '';
+    }
+  };
+  reader.readAsText(f);
+});
+
+// theme toggle
+function setTheme(dark){
+  if(dark){
+    document.documentElement.classList.add('dark');
+    iconSun.style.display = 'none';
+    iconMoon.style.display = '';
+    btnTheme.classList.add('active');
+    btnTheme.setAttribute('aria-pressed','true');
+  } else {
+    document.documentElement.classList.remove('dark');
+    iconSun.style.display = '';
+    iconMoon.style.display = 'none';
+    btnTheme.classList.remove('active');
+    btnTheme.setAttribute('aria-pressed','false');
+  }
+  draw();
+}
+btnTheme.addEventListener('click', ()=>{
+  const isDark = document.documentElement.classList.toggle('dark');
+  setTheme(isDark);
+});
+
+// initial theme: light
+setTheme(false);
+
+// initial tool
+setTool('pen');
+resizeCanvas();
+updateStatus();
+
+// expose for console debugging
+window.Conway = { alive, step, setPlay, setTool, parseRules, draw, exportPattern, importPatternFromText };
+
+</script>
+</body>
+</html>
